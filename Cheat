@@ -1,0 +1,195 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+-- GUI Setup
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = player:WaitForChild("PlayerGui")
+screenGui.Name = "CheatTestGUI"
+screenGui.ResetOnSpawn = false
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 200, 0, 250)
+frame.Position = UDim2.new(0, 50, 0, 50)
+frame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+frame.BorderSizePixel = 0
+frame.Parent = screenGui
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.Position = UDim2.new(0, 0, 0, 0)
+title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+title.Text = "Cheat Test GUI"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 20
+title.Parent = frame
+
+-- Draggable functionality
+local dragging
+local dragStart
+local startPos
+
+frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = frame.Position
+    end
+end)
+
+frame.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+-- Cheat states
+local speedEnabled = false
+local jumpEnabled = false
+local noclipEnabled = false
+local flyEnabled = false
+local flyConnection
+
+-- Button creation function
+local function createButton(name, position, text, callback)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0.8, 0, 0, 40)
+    button.Position = position
+    button.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    button.Text = text
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.Font = Enum.Font.SourceSans
+    button.TextSize = 16
+    button.Parent = frame
+    button.MouseButton1Click:Connect(callback)
+    return button
+end
+
+-- Speed cheat (sets WalkSpeed to 100)
+local function toggleSpeed()
+    speedEnabled = not speedEnabled
+    humanoid.WalkSpeed = speedEnabled and 100 or 16
+    speedButton.Text = "Speed (100) [" .. (speedEnabled and "ON" or "OFF") .. "]"
+end
+
+local speedButton = createButton("SpeedButton", UDim2.new(0.1, 0, 0.15, 0), "Speed (100) [OFF]", toggleSpeed)
+
+-- Jump cheat (sets JumpPower to 100)
+local function toggleJump()
+    jumpEnabled = not jumpEnabled
+    humanoid.JumpPower = jumpEnabled and 100 or 50
+    jumpButton.Text = "High Jump [ " .. (jumpEnabled and "ON" or "OFF") .. "]"
+end
+
+local jumpButton = createButton("JumpButton", UDim2.new(0.1, 0, 0.3, 0), "High Jump [OFF]", toggleJump)
+
+-- Noclip cheat
+local function toggleNoclip()
+    noclipEnabled = not noclipEnabled
+    noclipButton.Text = "Noclip [" .. (noclipEnabled and "ON" or "OFF") .. "]"
+end
+
+local noclipConnection
+local function onNoclipStep()
+    if noclipEnabled then
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    else
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
+noclipConnection = game:GetService("RunService").Stepped:Connect(onNoclipStep)
+local noclipButton = createButton("NoclipButton", UDim2.new(0.1, 0, 0.45, 0), "Noclip [OFF]", toggleNoclip)
+
+-- Fly cheat
+local function toggleFly()
+    flyEnabled = not flyEnabled
+    flyButton.Text = "Fly [" .. (flyEnabled and "ON" or "OFF") .. "]"
+    
+    if flyEnabled then
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.Parent = rootPart
+        
+        flyConnection = game:GetService("RunService").RenderStepped:Connect(function()
+            if flyEnabled then
+                local cam = workspace.CurrentCamera
+                local moveDirection = Vector3.new()
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                    moveDirection = moveDirection + cam.CFrame.LookVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                    moveDirection = moveDirection - cam.CFrame.LookVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                    moveDirection = moveDirection - cam.CFrame.RightVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                    moveDirection = moveDirection + cam.CFrame.RightVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                    moveDirection = moveDirection + Vector3.new(0, 1, 0)
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                    moveDirection = moveDirection - Vector3.new(0, 1, 0)
+                end
+                bodyVelocity.Velocity = moveDirection * 50
+            end
+        end)
+    else
+        if rootPart:FindFirstChildOfClass("BodyVelocity") then
+            rootPart:FindFirstChildOfClass("BodyVelocity"):Destroy()
+        end
+        if flyConnection then
+            flyConnection:Disconnect()
+        end
+    end
+end
+
+local flyButton = createButton("FlyButton", UDim2.new(0.1, 0, 0.6, 0), "Fly [OFF]", toggleFly)
+
+-- Handle character respawn
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    humanoid = character:WaitForChild("Humanoid")
+    rootPart = character:WaitForChild("HumanoidRootPart")
+    
+    -- Reset cheats on respawn
+    if speedEnabled then
+        humanoid.WalkSpeed = 100
+    end
+    if jumpEnabled then
+        humanoid.JumpPower = 100
+    end
+    if noclipEnabled then
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+    if flyEnabled then
+        toggleFly()
+        toggleFly() -- Re-enable fly to reapply BodyVelocity
+    end
+end)
