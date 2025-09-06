@@ -1,60 +1,56 @@
--- AntiCheat Script for Roblox
--- Place this as a regular Script in ServerScriptService
--- It will automatically initialize and run the anti-cheat checks
+-- 🔒 Full AntiCheat Script with GUI Check
+-- Помести этот скрипт в ServerScriptService
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 
--- Configuration
-local MAX_WALK_SPEED = 16  -- Default Roblox walk speed
-local SPEED_BUFFER = 5     -- Allow some buffer for lag/jumps
-local MAX_JUMP_POWER = 50  -- Default jump power
-local JUMP_BUFFER = 10     -- Buffer for jump power
-local MAX_AIR_TIME = 3     -- Max seconds in air without touching ground
-local CHECK_INTERVAL = 0.5 -- How often to check in seconds
-
--- Table to store player data
-local playerData = {}
-
-local function punishPlayer(player, reason, action)
-    warn(player.Name .. " detected for " .. reason)
-    if action == "teleport_back" then
-        local data = playerData[player]
-        if data and data.lastValidPosition then
-            player.Character.HumanoidRootPart.CFrame = CFrame.new(data.lastValidPosition)
-        end
-    elseif action == "kick" then
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-
+-- ⚙️ Конфигурация
 local MAX_WALK_SPEED = 16
 local SPEED_BUFFER = 5
 local MAX_JUMP_POWER = 50
 local JUMP_BUFFER = 10
 local MAX_AIR_TIME = 3
 local CHECK_INTERVAL = 0.5
-local MAX_DISTANCE_PER_CHECK = 20  -- Новое: максимальное расстояние за интервал проверки (для блокировки телепортаций)
+local MAX_DISTANCE_PER_CHECK = 20
+local MAX_STRIKES = 3
 
+-- 📝 Данные по игрокам
 local playerData = {}
 
+-- 📋 Вайтлист GUI (разрешённые)
+local guiWhitelist = {}
+for _, gui in ipairs(StarterGui:GetChildren()) do
+    if gui:IsA("ScreenGui") then
+        guiWhitelist[gui.Name] = true
+    end
+end
+
+-- ⚡️ Наказание
 local function punishPlayer(player, reason, action)
-    warn(player.Name .. " detected for " .. reason)
-    if action == "teleport_back" then
-        local data = playerData[player]
-        if data and data.lastValidPosition then
-            player.Character.HumanoidRootPart.CFrame = CFrame.new(data.lastValidPosition)
+    local data = playerData[player]
+    if not data then return end
+    
+    data.strikes = (data.strikes or 0) + 1
+    warn(("[AntiCheat] %s нарушил (%s). Страйков: %d"):format(player.Name, reason, data.strikes))
+
+    if action == "teleport_back" and data.lastValidPosition then
+        local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            rootPart.CFrame = CFrame.new(data.lastValidPosition + Vector3.new(0,2,0))
         end
-    elseif action == "kick" then
+    end
+    
+    if data.strikes >= MAX_STRIKES or action == "kick" then
         player:Kick("Cheat detected: " .. reason)
     end
 end
 
+-- 🚀 ДЕТЕКТ СКОРОСТИ И ТЕЛЕПОРТА
 local function checkSpeed(player)
     local data = playerData[player]
-    if not data then return end
-    
     local character = player.Character
-    if not character then return end
+    if not (data and character) then return end
     
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
@@ -63,77 +59,90 @@ local function checkSpeed(player)
     local dist = (currentPos - data.lastPosition).Magnitude
     local speed = dist / data.dt
     
-    if speed > (MAX_WALK_SPEED + SPEED_BUFFER) or dist > MAX_DISTANCE_PER_CHECK then  -- Добавлена проверка на телепортацию (большое расстояние)
-        punishPlayer(player, "Teleport/Speed hack", "teleport_back")
+    if speed > (MAX_WALK_SPEED + SPEED_BUFFER) or dist > MAX_DISTANCE_PER_CHECK then
+        punishPlayer(player, "Speed/Teleport", "teleport_back")
     else
-        data.lastValidPosition = currentPos  -- Обновляем валидную позицию только если не чит
+        data.lastValidPosition = currentPos
     end
     
     data.lastPosition = currentPos
-    data.dt = 0
 end
 
+-- 🦘 ДЕТЕКТ ВЫСОКИХ ПРЫЖКОВ
 local function checkJump(player)
     local character = player.Character
     if not character then return end
     
     local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-    
-    if humanoid.JumpPower > (MAX_JUMP_POWER + JUMP_BUFFER) then
-        humanoid.JumpPower = MAX_JUMP_POWER
-        punishPlayer(player, "Jump hack", "teleport_back")
+    if humanoid and humanoid.UseJumpPower then
+        if humanoid.JumpPower > (MAX_JUMP_POWER + JUMP_BUFFER) then
+            humanoid.JumpPower = MAX_JUMP_POWER
+            punishPlayer(player, "Jump hack", "teleport_back")
+        end
     end
 end
 
+-- ✈️ ДЕТЕКТ ФЛАЯ
 local function checkFly(player)
     local data = playerData[player]
-    if not data then return end
-    
     local character = player.Character
-    if not character then return end
+    if not (data and character) then return end
     
     local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-    
-    if humanoid:GetState() == Enum.HumanoidStateType.Freefall then
-        data.airTime = (data.airTime or 0) + data.dt
-        if data.airTime > MAX_AIR_TIME then
-            punishPlayer(player, "Fly hack", "teleport_back")
+    if humanoid then
+        if humanoid:GetState() == Enum.HumanoidStateType.Freefall then
+            data.airTime = (data.airTime or 0) + data.dt
+            if data.airTime > MAX_AIR_TIME then
+                punishPlayer(player, "Fly hack", "teleport_back")
+                data.airTime = 0
+            end
+        else
             data.airTime = 0
         end
-    else
-        data.airTime = 0
     end
 end
 
+-- 🚪 ДЕТЕКТ NOCLIP
 local function checkNoClip(player)
     local data = playerData[player]
-    if not data then return end
-    
     local character = player.Character
-    if not character then return end
+    if not (data and character) then return end
     
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
     
-    local direction = rootPart.Position - data.lastPosition
-    local ray = Ray.new(data.lastPosition, direction)
-    local hit, position = workspace:FindPartOnRayWithIgnoreList(ray, {character})
+    for _, part in ipairs(rootPart:GetTouchingParts()) do
+        if part.CanCollide and part:IsDescendantOf(workspace) and not part:IsDescendantOf(character) then
+            punishPlayer(player, "NoClip", "teleport_back")
+            return
+        end
+    end
     
-    if hit and hit.CanCollide then
-        punishPlayer(player, "NoClip", "teleport_back")
-    else
-        data.lastValidPosition = rootPart.Position
+    data.lastValidPosition = rootPart.Position
+end
+
+-- 🖥️ ДЕТЕКТ СТОРОННИХ GUI
+local function checkGui(player)
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return end
+    
+    for _, gui in ipairs(playerGui:GetChildren()) do
+        if gui:IsA("ScreenGui") then
+            if not guiWhitelist[gui.Name] then
+                punishPlayer(player, "Unauthorized GUI (" .. gui.Name .. ")", "kick")
+            end
+        end
     end
 end
 
+-- 👤 Подключение игрока
 local function onPlayerAdded(player)
     playerData[player] = {
         lastPosition = Vector3.new(0,0,0),
         lastValidPosition = Vector3.new(0,0,0),
         dt = 0,
-        airTime = 0
+        airTime = 0,
+        strikes = 0
     }
     
     player.CharacterAdded:Connect(function(character)
@@ -145,22 +154,40 @@ local function onPlayerAdded(player)
         humanoid:GetPropertyChangedSignal("JumpPower"):Connect(function()
             checkJump(player)
         end)
+        humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+            if humanoid.WalkSpeed > (MAX_WALK_SPEED + SPEED_BUFFER) then
+                humanoid.WalkSpeed = MAX_WALK_SPEED
+                punishPlayer(player, "WalkSpeed hack", "teleport_back")
+            end
+        end)
+    end)
+    
+    -- Отслеживание добавления GUI
+    player.PlayerGui.ChildAdded:Connect(function(child)
+        if child:IsA("ScreenGui") and not guiWhitelist[child.Name] then
+            punishPlayer(player, "Injected GUI (" .. child.Name .. ")", "kick")
+        end
     end)
 end
 
+-- ⏳ Проверки по таймеру
 local function onHeartbeat(dt)
     for player, data in pairs(playerData) do
-        data.dt = (data.dt or 0) + dt
-        if data.dt >= CHECK_INTERVAL then
-            checkSpeed(player)
-            checkFly(player)
-            checkNoClip(player)
-            checkJump(player)
-            data.dt = 0
+        if player.Character then
+            data.dt = (data.dt or 0) + dt
+            if data.dt >= CHECK_INTERVAL then
+                checkSpeed(player)   -- скорость/телепорт
+                checkFly(player)     -- флай
+                checkNoClip(player)  -- ноуклип
+                checkJump(player)    -- прыжок
+                checkGui(player)     -- лишний GUI
+                data.dt = 0
+            end
         end
     end
 end
 
+-- 📌 Подключение
 Players.PlayerAdded:Connect(onPlayerAdded)
 for _, player in ipairs(Players:GetPlayers()) do
     onPlayerAdded(player)
