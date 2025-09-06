@@ -24,9 +24,29 @@ local function punishPlayer(player, reason, action)
             player.Character.HumanoidRootPart.CFrame = CFrame.new(data.lastValidPosition)
         end
     elseif action == "kick" then
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local MAX_WALK_SPEED = 16
+local SPEED_BUFFER = 5
+local MAX_JUMP_POWER = 50
+local JUMP_BUFFER = 10
+local MAX_AIR_TIME = 3
+local CHECK_INTERVAL = 0.5
+local MAX_DISTANCE_PER_CHECK = 20  -- Новое: максимальное расстояние за интервал проверки (для блокировки телепортаций)
+
+local playerData = {}
+
+local function punishPlayer(player, reason, action)
+    warn(player.Name .. " detected for " .. reason)
+    if action == "teleport_back" then
+        local data = playerData[player]
+        if data and data.lastValidPosition then
+            player.Character.HumanoidRootPart.CFrame = CFrame.new(data.lastValidPosition)
+        end
+    elseif action == "kick" then
         player:Kick("Cheat detected: " .. reason)
     end
-    -- You can add ban system here if needed
 end
 
 local function checkSpeed(player)
@@ -41,10 +61,12 @@ local function checkSpeed(player)
     
     local currentPos = rootPart.Position
     local dist = (currentPos - data.lastPosition).Magnitude
-    local speed = dist / data.dt  -- dt is accumulated time since last check
+    local speed = dist / data.dt
     
-    if speed > (MAX_WALK_SPEED + SPEED_BUFFER) then
-        punishPlayer(player, "Speed hack", "teleport_back")
+    if speed > (MAX_WALK_SPEED + SPEED_BUFFER) or dist > MAX_DISTANCE_PER_CHECK then  -- Добавлена проверка на телепортацию (большое расстояние)
+        punishPlayer(player, "Teleport/Speed hack", "teleport_back")
+    else
+        data.lastValidPosition = currentPos  -- Обновляем валидную позицию только если не чит
     end
     
     data.lastPosition = currentPos
@@ -60,7 +82,7 @@ local function checkJump(player)
     
     if humanoid.JumpPower > (MAX_JUMP_POWER + JUMP_BUFFER) then
         humanoid.JumpPower = MAX_JUMP_POWER
-        punishPlayer(player, "Jump hack", "teleport_back")  -- Changed to teleport_back instead of kick
+        punishPlayer(player, "Jump hack", "teleport_back")
     end
 end
 
@@ -95,13 +117,11 @@ local function checkNoClip(player)
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
     
-    -- Simple raycast check between last and current position
     local direction = rootPart.Position - data.lastPosition
     local ray = Ray.new(data.lastPosition, direction)
     local hit, position = workspace:FindPartOnRayWithIgnoreList(ray, {character})
     
     if hit and hit.CanCollide then
-        -- Hit a wall, so noclip detected
         punishPlayer(player, "NoClip", "teleport_back")
     else
         data.lastValidPosition = rootPart.Position
@@ -121,7 +141,6 @@ local function onPlayerAdded(player)
         playerData[player].lastPosition = rootPart.Position
         playerData[player].lastValidPosition = rootPart.Position
         
-        -- Monitor JumpPower changes
         local humanoid = character:WaitForChild("Humanoid")
         humanoid:GetPropertyChangedSignal("JumpPower"):Connect(function()
             checkJump(player)
@@ -136,13 +155,12 @@ local function onHeartbeat(dt)
             checkSpeed(player)
             checkFly(player)
             checkNoClip(player)
-            checkJump(player)  -- Can check more frequently if needed
+            checkJump(player)
             data.dt = 0
         end
     end
 end
 
--- Initialize the anti-cheat
 Players.PlayerAdded:Connect(onPlayerAdded)
 for _, player in ipairs(Players:GetPlayers()) do
     onPlayerAdded(player)
