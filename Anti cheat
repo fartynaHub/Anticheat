@@ -1,0 +1,151 @@
+-- AntiCheat Script for Roblox
+-- Place this as a regular Script in ServerScriptService
+-- It will automatically initialize and run the anti-cheat checks
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- Configuration
+local MAX_WALK_SPEED = 16  -- Default Roblox walk speed
+local SPEED_BUFFER = 5     -- Allow some buffer for lag/jumps
+local MAX_JUMP_POWER = 50  -- Default jump power
+local JUMP_BUFFER = 10     -- Buffer for jump power
+local MAX_AIR_TIME = 3     -- Max seconds in air without touching ground
+local CHECK_INTERVAL = 0.5 -- How often to check in seconds
+
+-- Table to store player data
+local playerData = {}
+
+local function punishPlayer(player, reason, action)
+    warn(player.Name .. " detected for " .. reason)
+    if action == "teleport_back" then
+        local data = playerData[player]
+        if data and data.lastValidPosition then
+            player.Character.HumanoidRootPart.CFrame = CFrame.new(data.lastValidPosition)
+        end
+    elseif action == "kick" then
+        player:Kick("Cheat detected: " .. reason)
+    end
+    -- You can add ban system here if needed
+end
+
+local function checkSpeed(player)
+    local data = playerData[player]
+    if not data then return end
+    
+    local character = player.Character
+    if not character then return end
+    
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
+    
+    local currentPos = rootPart.Position
+    local dist = (currentPos - data.lastPosition).Magnitude
+    local speed = dist / data.dt  -- dt is accumulated time since last check
+    
+    if speed > (MAX_WALK_SPEED + SPEED_BUFFER) then
+        punishPlayer(player, "Speed hack", "teleport_back")
+    end
+    
+    data.lastPosition = currentPos
+    data.dt = 0
+end
+
+local function checkJump(player)
+    local character = player.Character
+    if not character then return end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    if humanoid.JumpPower > (MAX_JUMP_POWER + JUMP_BUFFER) then
+        humanoid.JumpPower = MAX_JUMP_POWER
+        punishPlayer(player, "Jump hack", "teleport_back")  -- Changed to teleport_back instead of kick
+    end
+end
+
+local function checkFly(player)
+    local data = playerData[player]
+    if not data then return end
+    
+    local character = player.Character
+    if not character then return end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    if humanoid:GetState() == Enum.HumanoidStateType.Freefall then
+        data.airTime = (data.airTime or 0) + data.dt
+        if data.airTime > MAX_AIR_TIME then
+            punishPlayer(player, "Fly hack", "teleport_back")
+            data.airTime = 0
+        end
+    else
+        data.airTime = 0
+    end
+end
+
+local function checkNoClip(player)
+    local data = playerData[player]
+    if not data then return end
+    
+    local character = player.Character
+    if not character then return end
+    
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
+    
+    -- Simple raycast check between last and current position
+    local direction = rootPart.Position - data.lastPosition
+    local ray = Ray.new(data.lastPosition, direction)
+    local hit, position = workspace:FindPartOnRayWithIgnoreList(ray, {character})
+    
+    if hit and hit.CanCollide then
+        -- Hit a wall, so noclip detected
+        punishPlayer(player, "NoClip", "teleport_back")
+    else
+        data.lastValidPosition = rootPart.Position
+    end
+end
+
+local function onPlayerAdded(player)
+    playerData[player] = {
+        lastPosition = Vector3.new(0,0,0),
+        lastValidPosition = Vector3.new(0,0,0),
+        dt = 0,
+        airTime = 0
+    }
+    
+    player.CharacterAdded:Connect(function(character)
+        local rootPart = character:WaitForChild("HumanoidRootPart")
+        playerData[player].lastPosition = rootPart.Position
+        playerData[player].lastValidPosition = rootPart.Position
+        
+        -- Monitor JumpPower changes
+        local humanoid = character:WaitForChild("Humanoid")
+        humanoid:GetPropertyChangedSignal("JumpPower"):Connect(function()
+            checkJump(player)
+        end)
+    end)
+end
+
+local function onHeartbeat(dt)
+    for player, data in pairs(playerData) do
+        data.dt = (data.dt or 0) + dt
+        if data.dt >= CHECK_INTERVAL then
+            checkSpeed(player)
+            checkFly(player)
+            checkNoClip(player)
+            checkJump(player)  -- Can check more frequently if needed
+            data.dt = 0
+        end
+    end
+end
+
+-- Initialize the anti-cheat
+Players.PlayerAdded:Connect(onPlayerAdded)
+for _, player in ipairs(Players:GetPlayers()) do
+    onPlayerAdded(player)
+end
+
+RunService.Heartbeat:Connect(onHeartbeat)
